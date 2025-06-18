@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chess with Move Validation and Selection</title>
+<style>
+  body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background: #333;
+    margin: 0;
+  }
+  .chessboard {
+    display: grid;
+    grid-template-columns: repeat(8, 60px);
+    grid-template-rows: repeat(8, 60px);
+    box-shadow: 0 0 15px rgba(0,0,0,0.7);
+    border: 4px solid #222;
+  }
+  .square {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 40px;
+    user-select: none;
+    cursor: pointer;
+    position: relative;
+  }
+  .square.white {
+    background-color: #eeeed2;
+  }
+  .square.black {
+    background-color: #769656;
+  }
+  .square.selected {
+    outline: 3px solid #f00;
+    z-index: 2;
+  }
+  .square.valid-move::after {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.3);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+</style>
+</head>
+<body>
+
+<div class="chessboard" id="board"></div>
+
+<script>
+  const pieces = {
+    r: '\u265C', n: '\u265E', b: '\u265D', q: '\u265B', k: '\u265A', p: '\u265F',
+    R: '\u2656', N: '\u2658', B: '\u2657', Q: '\u2655', K: '\u2654', P: '\u2659'
+  };
+
+  let boardState = [
+    ['r','n','b','q','k','b','n','r'],
+    ['p','p','p','p','p','p','p','p'],
+    [null,null,null,null,null,null,null,null],
+    [null,null,null,null,null,null,null,null],
+    [null,null,null,null,null,null,null,null],
+    [null,null,null,null,null,null,null,null],
+    ['P','P','P','P','P','P','P','P'],
+    ['R','N','B','Q','K','B','N','R']
+  ];
+
+  const boardElement = document.getElementById('board');
+  let selectedSquare = null;
+  let validMoves = [];
+
+  function renderBoard() {
+    boardElement.innerHTML = '';
+    for(let row=0; row<8; row++) {
+      for(let col=0; col<8; col++) {
+        const square = document.createElement('div');
+        square.classList.add('square');
+        (row + col) % 2 === 0 ? square.classList.add('white') : square.classList.add('black');
+
+        if(selectedSquare && selectedSquare[0] === row && selectedSquare[1] === col) {
+          square.classList.add('selected');
+        }
+
+        // highlight valid moves
+        if(validMoves.some(m => m[0] === row && m[1] === col)) {
+          square.classList.add('valid-move');
+        }
+
+        const piece = boardState[row][col];
+        if(piece) {
+          square.textContent = pieces[piece];
+        }
+
+        square.dataset.row = row;
+        square.dataset.col = col;
+        square.addEventListener('click', () => onSquareClick(row, col));
+        boardElement.appendChild(square);
+      }
+    }
+  }
+
+  // Utility: check if inside board
+  function insideBoard(r, c) {
+    return r >= 0 && r < 8 && c >= 0 && c < 8;
+  }
+
+  // Returns color of piece, 'w', 'b', or null if empty
+  function pieceColor(piece) {
+    if(!piece) return null;
+    return piece === piece.toUpperCase() ? 'w' : 'b';
+  }
+
+  // Get valid moves for piece at (r,c)
+  function getValidMoves(r, c) {
+    const piece = boardState[r][c];
+    if(!piece) return [];
+
+    const color = pieceColor(piece);
+    const moves = [];
+
+    // Directions helper for sliding pieces
+    const directions = {
+      bishop: [[1,1],[1,-1],[-1,1],[-1,-1]],
+      rook: [[1,0],[-1,0],[0,1],[0,-1]],
+      queen: [[1,1],[1,-1],[-1,1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]],
+      knight: [[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]]
+    };
+
+    function trySlide(dir) {
+      let nr = r + dir[0], nc = c + dir[1];
+      while(insideBoard(nr,nc)) {
+        if(boardState[nr][nc] === null) {
+          moves.push([nr,nc]);
+        } else {
+          if(pieceColor(boardState[nr][nc]) !== color) {
+            moves.push([nr,nc]);
+          }
+          break;
+        }
+        nr += dir[0];
+        nc += dir[1];
+      }
+    }
+
+    switch(piece.toLowerCase()) {
+      case 'p': { // Pawn
+        const forward = color === 'w' ? -1 : 1;
+        const startRow = color === 'w' ? 6 : 1;
+        // forward move
+        let nr = r + forward;
+        if(insideBoard(nr, c) && !boardState[nr][c]) {
+          moves.push([nr,c]);
+          // first double move
+          if(r === startRow && !boardState[nr + forward]?.[c]) {
+            moves.push([nr + forward,c]);
+          }
+        }
+        // captures
+        for(let dc of [-1, 1]) {
+          let nc = c + dc;
+          if(insideBoard(nr, nc) && boardState[nr][nc] && pieceColor(boardState[nr][nc]) !== color) {
+            moves.push([nr, nc]);
+          }
+        }
+        break;
+      }
+      case 'n': { // Knight
+        for(const d of directions.knight) {
+          const nr = r + d[0], nc = c + d[1];
+          if(insideBoard(nr,nc)) {
+            if(!boardState[nr][nc] || pieceColor(boardState[nr][nc]) !== color) {
+              moves.push([nr,nc]);
+            }
+          }
+        }
+        break;
+      }
+      case 'b': { // Bishop
+        for(const dir of directions.bishop) {
+          trySlide(dir);
+        }
+        break;
+      }
+      case 'r': { // Rook
+        for(const dir of directions.rook) {
+          trySlide(dir);
+        }
+        break;
+      }
+      case 'q': { // Queen
+        for(const dir of directions.queen) {
+          trySlide(dir);
+        }
+        break;
+      }
+      case 'k': { // King
+        for(const dir of directions.queen) {
+          const nr = r + dir[0], nc = c + dir[1];
+          if(insideBoard(nr,nc)) {
+            if(!boardState[nr][nc] || pieceColor(boardState[nr][nc]) !== color) {
+              moves.push([nr,nc]);
+            }
+          }
+        }
+        break;
+      }
+    }
+
+    return moves;
+  }
+
+  function onSquareClick(row, col) {
+    const clickedPiece = boardState[row][col];
+    if(selectedSquare) {
+      // If clicked on a valid move, move piece
+      if(validMoves.some(m => m[0] === row && m[1] === col)) {
+        movePiece(selectedSquare[0], selectedSquare[1], row, col);
+        selectedSquare = null;
+        validMoves = [];
+      } else if(clickedPiece && pieceColor(clickedPiece) === pieceColor(boardState[selectedSquare[0]][selectedSquare[1]])) {
+        // Change selected piece
+        selectedSquare = [row,col];
+        validMoves = getValidMoves(row,col);
+      } else {
+        // Deselect
+        selectedSquare = null;
+        validMoves = [];
+      }
+    } else {
+      if(clickedPiece) {
+        selectedSquare = [row,col];
+        validMoves = getValidMoves(row,col);
+      }
+    }
+    renderBoard();
+  }
+
+  function movePiece(sr, sc, er, ec) {
+    boardState[er][ec] = boardState[sr][sc];
+    boardState[sr][sc] = null;
+  }
+
+  renderBoard();
+</script>
+
+</body>
+</html>
+  
+  
+  <link rel="stylesheet" href="https://unpkg.com/chessboardjs/dist/chessboard-1.0.0.min.css">
+<script src="https://unpkg.com/chess.js"></script>
+<script src="https://unpkg.com/chessboardjs"></script>
